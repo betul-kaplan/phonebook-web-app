@@ -8,7 +8,7 @@ Description: |
   which allows http (80) and SSH (22)connections from anywhere. WebServerASG Auto Scaling Group is using the LT 
   Launch Template in order to spin up instances needed. LT Launch Template is configured to prepare Python Flask 
   environment on EC2, and to deploy Phonebook Application on Flask Server after downloading the app code 
-  from Github repository.
+  from Github repository. RDS credentials are located in parameter store and fetch by boto3 in .py file.
 
 Parameters:
   MyVPC:
@@ -16,26 +16,26 @@ Parameters:
     Type: AWS::EC2::VPC::Id
   Subnets:
     Description: Please select your subnets used by ALB 
-    Type: List<AWS::EC2::Subnet::Id> #List 
+    Type: List<AWS::EC2::Subnet::Id> #List
   KeyName:
     Description: Please enter your Key pair
     Type: AWS::EC2::KeyPair::KeyName
     Default: betulk
   LatestAmiId: 
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
-  MyDbusername:  
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'              
+  MyDbusername:
     Type: AWS::SSM::Parameter::Value<String>
-    Default: /ondia/phonebook/username 
+    Default: /ondia/phonebook/username
 
 Resources:
 
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP for web server #Required
+      GroupDescription: Allow HTTP for webserver # Required
       VpcId: !Ref MyVPC
-      SecurityGroupIngress:
+      SecurityGroupIngress: 
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
@@ -44,29 +44,28 @@ Resources:
   WebServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow  SSH anywhere and HTTP for flask webserver from only ALB #Required
-      VpcId: !Ref MyVPC
-      SecurityGroupIngress:
+      GroupDescription: Allow SSH from anywhere and HTTP for flask webserver from only ALB # Required
+      VpcId: !Ref MyVPC      
+      SecurityGroupIngress: 
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId
-        - IpProtocol: tcp
+          SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId # !Ref ALBSecurityGroup
+        - IpProtocol: tcp          
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0
-
+          CidrIp: 0.0.0.0/0          
+ 
   RDSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow  Mysql only from webserver #Required
+      GroupDescription: Allow Mysql only from webserver # Required
       VpcId: !Ref MyVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 3306
+      SecurityGroupIngress: 
+        - IpProtocol: tcp          
+          FromPort: 3306         
           ToPort: 3306
-          SourceSecurityGroupId: !GetAtt WebServerSecurityGroup.GroupId #!Ref WebServerSecurityGroup   
-
+          SourceSecurityGroupId: !GetAtt WebServerSecurityGroup.GroupId # !Ref WebServerSecurityGroup
   DBInstance:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -82,33 +81,31 @@ Resources:
       Engine: MySQL
       EngineVersion: 8.0.42
       MasterUserPassword: '{{resolve:ssm-secure:/ondia/phonebook/password:1}}'
-      MasterUsername: !Ref MyDbusername #'{{resolve:ssm:/ondia/phonebook/username:1}}'
+      MasterUsername: !Ref MyDbusername  #{{resolve:ssm:/ondia/phonebook/username:1}}
       Port: 3306
       PubliclyAccessible: true
       VPCSecurityGroups: 
-        - !GetAtt RDSecurityGroup.GroupId
-    DeletionPolicy: Delete    
+        - !GetAtt RDSecurityGroup.GroupId        
+    DeletionPolicy: Delete 
   # RDSSecurityGroup:
   #   Type: AWS::RDS::DBSecurityGroup
   #   Properties:
   #     DBSecurityGroupIngress: # Required
   #       - EC2SecurityGroupId: !GetAtt WebServerSecurityGroup.GroupId
-  #     GroupDescription: allow from port 3306 connection only from ec2 # Required        
+  #     GroupDescription: allow from port 3306 connection only from ec2 # Required    
 
   MySSMRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "String"      
-      AssumeRolePolicyDocument:  # Required
-        Version: "2012-10-17"		 	 	 
+      RoleName: SSMRoleWithManagedPolicy
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              Service:
-                - ec2.amazonaws.com
-            Action:
-              - 'sts:AssumeRole'      
-      ManagedPolicyArns: 
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMFullAccess
 
   MyInstanceProfile:
@@ -117,7 +114,7 @@ Resources:
       InstanceProfileName: SSMInstanceProfile
       Roles: # Required
         - !Ref MySSMRole
- 
+
   TG:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -163,7 +160,6 @@ Resources:
                 git clone https://$TOKEN@github.com/betul-kaplan/phonebook-web-app.git
                 python3 /home/ec2-user/phonebook-web-app/solution/phonebook-app.py
               - MyDBURI: !GetAtt DBInstance.Endpoint.Address
-  
 
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -173,7 +169,7 @@ Resources:
           Type: forward
       LoadBalancerArn: !Ref ALB # Required
       Port: 80 # Required
-      Protocol: HTTP  # Required:
+      Protocol: HTTP  # Required
 
   ALB: 
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -198,9 +194,8 @@ Resources:
       MinSize: 1  
       TargetGroupARNs:
         - !Ref TG
-      VPCZoneIdentifier: !Ref Subnets # not array         
-   
-    
+      VPCZoneIdentifier: !Ref Subnets # not array    
+
 Outputs:
   WebsiteURL:
     Value: !Sub 
